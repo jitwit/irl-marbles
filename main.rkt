@@ -85,12 +85,12 @@
 
 (define *oauth-token*
   (symbol->string
-   (with-input-from-file "token_j.txt"
+   (with-input-from-file "token.txt"
      read)))
 
 (define *username*
   (symbol->string
-   (with-input-from-file "user_j.txt"
+   (with-input-from-file "user.txt"
      read)))
 
 (define twitch-connection
@@ -113,8 +113,7 @@
   (irc-send-command c "CAP REQ" ":twitch.tv/commands")
   (irc-send-command c "CAP REQ" ":twitch.tv/tags")
   (irc-join-channel c (string-append "#" *username*))
-  ;; (irc-join-channel C "#spennythompson")
-  )
+  (irc-join-channel c "#spennythompson"))
 
 (define (is-moderator? message)
   (equal? "1" (cdr (assq 'mod (irc-message-tags message)))))
