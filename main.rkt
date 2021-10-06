@@ -20,6 +20,12 @@
     (Q . "white queen")
     (K . "white king")))
 
+(define (swap a.b)
+  (cons (cdr a.b) (car a.b)))
+
+(define names.pieces
+  (map swap pieces.names))
+
 (define pieces
   (map car pieces.names))
 
@@ -80,7 +86,11 @@
    (with-input-from-file "user_j.txt"
      read)))
 
-(define C (void))
+(define twitch-connection
+  (make-parameter #f))
+
+(define irl-semaphore
+  (make-semaphore 1))
 
 (define (boot)
   (define-values (c ready)
@@ -92,10 +102,10 @@
                  #:ssl 'auto
                  #:password (string-append "oauth:" *oauth-token*)))
   (sync ready)
-  (set! C c)
-  (irc-send-command C "CAP REQ" ":twitch.tv/commands")
-  (irc-send-command C "CAP REQ" ":twitch.tv/tags")
-  (irc-join-channel C (string-append "#" *username*))
+  (twitch-connection c)
+  (irc-send-command c "CAP REQ" ":twitch.tv/commands")
+  (irc-send-command c "CAP REQ" ":twitch.tv/tags")
+  (irc-join-channel c (string-append "#" *username*))
   ;; (irc-join-channel C "#spennythompson")
   )
 
@@ -112,6 +122,21 @@
     "reset"
     "commands"))
 
+(define (arguments->piece args)
+  (write args) (newline)
+  (match args
+    (`(,fen-char)
+     (string->symbol fen-char)
+     (write (string->symbol fen-char))
+     (newline)
+     (string->symbol fen-char))
+    (`(,color ,english-name)
+     (define name.piece
+       (assoc (string-join (list color english-name))
+              names.pieces))
+     (and name.piece (cdr name.piece)))
+    (_ #f)))
+
 (define (response-message message)
   (match message
     ((irc-message tags pref "PRIVMSG" `(,where ,what) message-whole)
@@ -119,9 +144,8 @@
        (cdr (assq 'display-name (irc-message-tags message))))
      (match (string-split what)
        ('("?play")
-        ;; todo mutex or something 
         (let* ((piece (random-piece))
-               (result (add-participant who (random-piece))))
+               (result (add-participant who piece)))
           (match result
             ('ok
              (format "@~a you have the ~a"
@@ -135,8 +159,7 @@
                      who)))))
        ('("?leave")
         (remove-participant who)
-        (format "@~a left the game"
-                who))
+        (format "@~a left the game" who))
        ('("?what")
         (let ((piece (participant-piece who)))
           (if piece
@@ -144,74 +167,70 @@
                       who
                       (and piece
                            (piece->name piece)))
-              (format "@~a you are not in the irl marbbies"
-                      who))))
-       (`("?who" ,piece)
-        (let* ((piece (string->symbol piece))
+              (format "@~a you are not in the current irl marbbies" who))))
+       (`("?who" . ,args)
+        (let* ((piece (arguments->piece args))
                (pig (lookup-piece piece)))
           (cond ((not (member piece pieces))
                  (format "@~a, ~a is not a piece. expecting one of: ~a"
                          who
                          piece
-                         (string-join
-                          (map symbol->string pieces)
-                          ", ")))
+                         (string-join (map symbol->string pieces) ", ")))
                 (else
                  (if pig
-                     (format "@~a, ~a has the ~a"
+                     (format "@~a @~a has the ~a"
                              who
                              pig
                              (piece->name piece))
-                     (format "@~a, ~a isn't taken"
-                             (piece->name piece)
-                             who))))))
+                     (format "@~a the ~a isn't taken"
+                             who
+                             (piece->name piece)))))))
        (`("?force" ,who)
         (let* ((piece (random-piece))
                (result (add-participant who (random-piece))))
           (match result
             ('marbles-full
-             (format "@~a marbbies is full"
-                     who))
-            (_ (void)))))
+             (format "@~a irl marbbies is full" who))
+            (_ #f))))
        ('("?pieces")
         (format "@~a ~a"
                 who
-                (string-join
-                 (map piece->name (hash-keys participants))
-                 ", ")))
+                (string-join (map piece->name (hash-keys participants)) ", ")))
        ('("?commands")
         (format "@~a the commands are: ~a"
                 who
-                (string-join
-                 commands
-                 ", ")))
+                (string-join commands ", ")))
        ('("?pieces-free")
-        (format "@~a ~a"
+        (format "@~a remaining pieces: ~a"
                 who
-                (string-join
-                 (map piece->name (available-pieces))
-                 ", ")))
+                (string-join (map piece->name (available-pieces)) ", ")))
        ('("?reset")
-        (when (is-moderator? message)
-              ;; todo improve conditions
-          (reset-marbles)
-          (format "irl marbles has been reset by @~a"
-                  who)))
+        (cond ((is-moderator? message)
+               ;; todo improve conditions
+               (reset-marbles)
+               (format "irl marbles has been reset by @~a" who))
+              (else
+               (format "@~a the command \"?reset\" is only available to moderators"
+                       who))))
        (_ #f))) ;; unrecognized command/not applicable
     (_ #f))) ;; other kinds of messages
 
 (define (respond-to-message message)
+  (write message) (newline)
   (match message
     ((irc-message _ _ "PRIVMSG" `(,where ,what)  _)
      (define response
-       (response-message message))
-     (irc-send-message C where response))
+       (call-with-semaphore irl-semaphore
+                            (lambda ()
+                              (response-message message))))
+     (when response
+       (irc-send-message (twitch-connection) where response)))
     (_ (void))))
 
 (define (gogo)
   (let loop ()
     (define message
-      (async-channel-get (irc-connection-incoming C)))
+      (async-channel-get (irc-connection-incoming (twitch-connection))))
     (thread
      (lambda ()
        (respond-to-message message)))
