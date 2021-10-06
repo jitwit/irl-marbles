@@ -77,12 +77,14 @@
 (define (reset-marbles)
   (set! participants (make-hash)))
 
+;; randomly return one of the available pieces or #f if none are left
 (define (random-piece)
   (let* ((ps (available-pieces))
          (n (length ps)))
     (and (> n 0)
          (list-ref ps (random n)))))
 
+;; configuration to log in to twitch
 (define *oauth-token*
   (symbol->string
    (with-input-from-file "token.txt"
@@ -93,12 +95,15 @@
    (with-input-from-file "user.txt"
      read)))
 
+;; network connection to twitch irc network
 (define twitch-connection
   (make-parameter #f))
 
+;; semaphore to protect state among threads
 (define irl-semaphore
   (make-semaphore 1))
 
+;; connect to twitch and grab connection in twitch-connection parameter
 (define (boot)
   (define-values (c ready)
     (irc-connect "irc.chat.twitch.tv"
@@ -117,10 +122,18 @@
 
 (define (is-moderator? message)
   (equal? "1" (cdr (assq 'mod (irc-message-tags message)))))
+
 (define (is-room-owner? message)
   (equal? (cdr (assq 'room-id (irc-message-tags message)))
           (cdr (assq 'user-id (irc-message-tags message)))))
 
+;; allow destructive actions only by moderators or room owner (because
+;; for whatever reason they don't get mod . "1" tag?)
+(define (grant-permission? message)
+  (or (is-moderator? message)
+      (is-room-owner? message)))
+
+;; list of commands
 (define commands
   '("play"
     "leave"
@@ -133,6 +146,7 @@
     "reset"
     "commands"))
 
+;; take arguments to ?who command and figure out piece
 (define (arguments->piece args)
   (match args
     (`(,fen-char)
@@ -144,6 +158,7 @@
      (and name.piece (cdr name.piece)))
     (_ #f)))
 
+;; handle commands and return response text
 (define (response-message message)
   (match message
     ((irc-message tags pref "PRIVMSG" `(,where ,what) message-whole)
@@ -241,6 +256,7 @@
        (_ #f))) ;; unrecognized command/not applicable
     (_ #f))) ;; other types of messages
 
+;; respond to applicable messages
 (define (respond-to-message message)
   (write message) (newline)
   (match message
@@ -253,6 +269,7 @@
        (irc-send-message (twitch-connection) where response)))
     (_ (void))))
 
+;; main loop
 (define (gogo)
   (let loop ()
     (define message
