@@ -19,6 +19,9 @@
     (Q . "white queen")
     (K . "white king")))
 
+(define prioritized-pieces
+  '(p n b r q k P N B R Q K))
+
 (define (swap a.b)
   (cons (cdr a.b) (car a.b)))
 
@@ -79,7 +82,9 @@
 
 ;; randomly return one of the available pieces or #f if none are left
 (define (random-piece)
-  (let* ((ps (available-pieces))
+  (define available (available-pieces))
+  (define first-set (lset-intersection eq? available prioritized-pieces))
+  (let* ((ps (if (null? first-set) available first-set))
          (n (length ps)))
     (and (> n 0)
          (list-ref ps (random n)))))
