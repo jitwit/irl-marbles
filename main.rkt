@@ -1,7 +1,6 @@
 #lang racket
 
-(require net/http-easy
-         racket/async-channel
+(require racket/async-channel
          (except-in srfi/1 delete)
          
          "irc.rkt")
@@ -23,6 +22,11 @@
 (define (swap a.b)
   (cons (cdr a.b) (car a.b)))
 
+(define (remove-at name)
+  (if (and (non-empty-string? name) (eqv? #\@ (string-ref name 0)))
+      (substring name 1)
+      name))
+
 (define names.pieces
   (map swap pieces.names))
 
@@ -33,17 +37,17 @@
   (let ((name (assq piece pieces.names)))
     (and name (cdr name))))
 
+;; table mapping pieces to usernames, the core state.
 (define participants
   (make-hash))
 
+;; list of pieces that haven't been assigned
 (define (available-pieces)
   (filter (lambda (p)
             (not (lookup-piece p)))
           pieces))
 
-(define add-messages
-  '(ok already-assigned piece-taken marbles-full))
-
+;; add an entry to the participants table unless there are conflicts
 (define (add-participant who piece)
   (cond ((member who (hash-values participants))
          'already-assigned)
@@ -53,15 +57,18 @@
          (hash-set! participants piece who) 'ok)
         (else 'piece-taken)))
 
+;; find out what piece someone specific has
 (define (participant-piece who)
   (let ((there (member who (hash-values participants))))
     (and there
          (list-ref (hash-keys participants)
                    (- (hash-count participants) (length there))))))
 
+;; find out who has a given piece
 (define (lookup-piece piece)
   (hash-ref participants piece #f))
 
+;; remove assignment of given person
 (define (remove-participant who)
   (let ((piece (participant-piece who)))
     (and piece
@@ -118,10 +125,12 @@
 (define commands
   '("play"
     "leave"
+    "kick"
     "who"
     "what"
     "pieces"
     "pieces-free"
+    "lineup"
     "reset"
     "commands"))
 
@@ -159,6 +168,16 @@
        ('("?leave")
         (remove-participant who)
         (format "@~a left the game" who))
+       (`("?kick" ,pisser)
+        (let ((pisser (remove-at pisser)))
+          (cond ((or (is-moderator? message)
+                     (is-room-owner? message)
+                     (equal? pisser who))
+                 (remove-participant pisser)
+                 (format "@~a left the game" pisser))
+                (else
+                 (format "@~a only moderators or ~a can kick @~a"
+                         who pisser pisser)))))
        ('("?what")
         (let ((piece (participant-piece who)))
           (if piece
@@ -186,7 +205,7 @@
                              (piece->name piece)))))))
        (`("?force" ,who)
         (let* ((piece (random-piece))
-               (result (add-participant who (random-piece))))
+               (result (add-participant who piece)))
           (match result
             ('marbles-full
              (format "@~a irl marbbies is full" who))
@@ -195,28 +214,33 @@
         (format "@~a ~a"
                 who
                 (string-join (map piece->name (hash-keys participants)) ", ")))
-       ('("?commands")
-        (format "@~a the commands are: ~a"
-                who
-                (string-join commands ", ")))
        ('("?pieces-free")
         (format "@~a remaining pieces: ~a"
                 who
                 (string-join (map piece->name (available-pieces)) ", ")))
+       ('("?lineup")
+        (format "@~a the current lineup: ~a"
+                who
+                (string-join (map (lambda (p.w)
+                                    (format "~a: ~a"
+                                            (piece->name (car p.w))
+                                            (cdr p.w)))
+                                  (hash->list participants))
+                             ", ")))
        ('("?reset")
-        (cond ((is-moderator? message)
-               ;; todo improve conditions
-               (reset-marbles)
-               (format "irl marbles has been reset by @~a" who))
-              ((is-room-owner? message)
-               ;; todo improve conditions
+        (cond ((or (is-moderator? message)
+                   (is-room-owner? message))
                (reset-marbles)
                (format "irl marbles has been reset by @~a" who))
               (else
                (format "@~a the command \"?reset\" is only available to moderators"
                        who))))
+       ('("?commands")
+        (format "@~a the commands are: ~a"
+                who
+                (string-join commands ", ")))
        (_ #f))) ;; unrecognized command/not applicable
-    (_ #f))) ;; other kinds of messages
+    (_ #f))) ;; other types of messages
 
 (define (respond-to-message message)
   (write message) (newline)
