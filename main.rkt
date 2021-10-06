@@ -111,6 +111,9 @@
 
 (define (is-moderator? message)
   (equal? "1" (cdr (assq 'mod (irc-message-tags message)))))
+(define (is-room-owner? message)
+  (equal? (cdr (assq 'room-id (irc-message-tags message)))
+          (cdr (assq 'user-id (irc-message-tags message)))))
 
 (define commands
   '("play"
@@ -123,12 +126,8 @@
     "commands"))
 
 (define (arguments->piece args)
-  (write args) (newline)
   (match args
     (`(,fen-char)
-     (string->symbol fen-char)
-     (write (string->symbol fen-char))
-     (newline)
      (string->symbol fen-char))
     (`(,color ,english-name)
      (define name.piece
@@ -206,6 +205,10 @@
                 (string-join (map piece->name (available-pieces)) ", ")))
        ('("?reset")
         (cond ((is-moderator? message)
+               ;; todo improve conditions
+               (reset-marbles)
+               (format "irl marbles has been reset by @~a" who))
+              ((is-room-owner? message)
                ;; todo improve conditions
                (reset-marbles)
                (format "irl marbles has been reset by @~a" who))
