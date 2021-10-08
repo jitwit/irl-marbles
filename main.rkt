@@ -130,17 +130,21 @@
       (is-room-owner? message)))
 
 ;; list of commands
+;  ?watch (doesn't want to join...?) , (?freeze prevent further joins)
 (define commands
-  '("play"
-    "leave"
-    "kick"
-    "who"
-    "what"
-    "pieces"
-    "pieces-free"
-    "lineup"
-    "reset"
-    "commands"))
+  '(("?play" . "?play -- join marbles")
+    ("?leave" . "?leave -- quit marbles")
+    ("?kick" . "?kick <user> -- (mod only) boot <user> from the game")
+    ("?who" . "?who <piece> -- owner of <piece>, where <piece> is
+either in fen or in full (e.g. n for black knight, R2 for white
+rook2)")
+    ("?what" . "?what -- what piece do you have")
+    ("?pieces" . "?pieces -- list of assigned pieces")
+    ("?pieces-free" . "?pieces-free -- list of pieces not yet assigned")
+    ("?lineup" . "?lineup -- pieces & people")
+    ("?reset" . "?reset -- (mod only) reset the marbles")
+    ("?help" . "?help <command> -- information about <command>")
+    ("?commands" . "?commands -- list of available commands. type ?help <command> to get information about <command>")))
 
 ;; take arguments to ?who command and figure out piece
 (define (arguments->piece args)
@@ -150,6 +154,11 @@
     (`(,color ,english-name)
      (define name.piece
        (assoc (string-join (list color english-name))
+              names.pieces))
+     (and name.piece (cdr name.piece)))
+    (`(,color ,english-name "2")
+     (define name.piece
+       (assoc (string-join (list color (string-append english-name "2")))
               names.pieces))
      (and name.piece (cdr name.piece)))
     (_ #f)))
@@ -200,9 +209,9 @@
         (let* ((piece (arguments->piece args))
                (pig (lookup-piece piece)))
           (cond ((not (member piece pieces))
-                 (format "@~a, ~a is not a piece. expecting one of: ~a"
+                 (format "@~a, \"~a\" is not a piece. expecting one of: ~a"
                          who
-                         piece
+                         (string-join args)
                          (string-join (map symbol->string pieces) ", ")))
                 (else
                  (if pig
@@ -248,7 +257,15 @@
        ('("?commands")
         (format "@~a the commands are: ~a"
                 who
-                (string-join commands ", ")))
+                (string-join (map car commands) ", ")))
+       (`("?help" ,command)
+        (define msg (assoc command commands))
+        (if msg
+            (format "@~a ~a" who (cdr msg))
+            (format "@~a command not found: ~a. use \"?commands\" to see possible commands"
+                    who command)))
+       (`("?help")
+        (format "@~a try \"?help <command>\" or \"?commands\"" who))
        (_ #f))) ;; unrecognized command/not applicable
     (_ #f))) ;; other types of messages
 
