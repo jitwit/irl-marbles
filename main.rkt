@@ -15,9 +15,19 @@
     (P . "white pawn")
     (N . "white knight")
     (B . "white bishop")
-    (R . "whtie rook")
+    (R . "white rook")
     (Q . "white queen")
-    (K . "white king")))
+    (K . "white king")
+    (p2 . "black pawn2")
+    (b2 . "black bishop2")
+    (r2 . "black rook2")
+    (q2 . "black queen2")
+    (k2 . "black king2")
+    (P2 . "white pawn2")
+    (B2 . "white bishop2")
+    (R2 . "white rook2")
+    (Q2 . "white queen2")
+    (K2 . "white king2")))
 
 (define prioritized-pieces
   '(p n b r q k P N B R Q K))
@@ -46,9 +56,7 @@
 
 ;; list of pieces that haven't been assigned
 (define (available-pieces)
-  (filter (lambda (p)
-            (not (lookup-piece p)))
-          pieces))
+  (filter (compose not lookup-piece) pieces))
 
 ;; add an entry to the participants table unless there are conflicts
 (define (add-participant who piece)
@@ -107,23 +115,6 @@
 ;; semaphore to protect state among threads
 (define irl-semaphore
   (make-semaphore 1))
-
-;; connect to twitch and grab connection in twitch-connection parameter
-(define (boot)
-  (define-values (c ready)
-    (irc-connect "irc.chat.twitch.tv"
-                 6697
-                 *username*
-                 *username*
-                 *username*
-                 #:ssl 'auto
-                 #:password (string-append "oauth:" *oauth-token*)))
-  (sync ready)
-  (twitch-connection c)
-  (irc-send-command c "CAP REQ" ":twitch.tv/commands")
-  (irc-send-command c "CAP REQ" ":twitch.tv/tags")
-  (irc-join-channel c (string-append "#" *username*))
-  (irc-join-channel c "#spennythompson"))
 
 (define (is-moderator? message)
   (equal? "1" (cdr (assq 'mod (irc-message-tags message)))))
@@ -273,6 +264,23 @@
      (when response
        (irc-send-message (twitch-connection) where response)))
     (_ (void))))
+
+;; connect to twitch and grab connection in twitch-connection parameter
+(define (boot)
+  (define-values (c ready)
+    (irc-connect "irc.chat.twitch.tv"
+                 6697
+                 *username*
+                 *username*
+                 *username*
+                 #:ssl 'auto
+                 #:password (string-append "oauth:" *oauth-token*)))
+  (sync ready)
+  (twitch-connection c)
+  (irc-send-command c "CAP REQ" ":twitch.tv/commands")
+  (irc-send-command c "CAP REQ" ":twitch.tv/tags")
+  (irc-join-channel c (string-append "#" *username*))
+  (irc-join-channel c "#spennythompson"))
 
 ;; main loop
 (define (gogo)
