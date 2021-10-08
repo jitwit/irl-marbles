@@ -54,6 +54,17 @@
 (define participants
   (make-hash))
 
+;; sorted list of pieces that have been assinged
+(define (assigned-pieces)
+  (filter lookup-piece pieces))
+
+;; sorted list of assignements
+(define (marbles-lineup)
+  (filter-map (lambda (x)
+                (let ((pp (lookup-piece x)))
+                  (and pp (cons x pp))))
+              pieces))
+
 ;; list of pieces that haven't been assigned
 (define (available-pieces)
   (filter (compose not lookup-piece) pieces))
@@ -153,12 +164,14 @@ rook2)")
      (string->symbol fen-char))
     (`(,color ,english-name)
      (define name.piece
-       (assoc (string-join (list color english-name))
+       (assoc (string-join (map string-downcase (list color english-name)))
               names.pieces))
      (and name.piece (cdr name.piece)))
     (`(,color ,english-name "2")
      (define name.piece
-       (assoc (string-join (list color (string-append english-name "2")))
+       (assoc (string-join (map string-downcase
+                                (list color
+                                      (string-append english-name "2"))))
               names.pieces))
      (and name.piece (cdr name.piece)))
     (_ #f)))
@@ -209,10 +222,12 @@ rook2)")
         (let* ((piece (arguments->piece args))
                (pig (lookup-piece piece)))
           (cond ((not (member piece pieces))
-                 (format "@~a, \"~a\" is not a piece. expecting one of: ~a"
+                 (format "@~a, got \"~a\", expecting one of: ~a"
                          who
                          (string-join args)
-                         (string-join (map symbol->string pieces) ", ")))
+                         (string-join (append (map symbol->string pieces)
+                                              (map cdr pieces.names))
+                                      ", ")))
                 (else
                  (if pig
                      (format "@~a @~a has the ~a"
@@ -223,16 +238,18 @@ rook2)")
                              who
                              (piece->name piece)))))))
        (`("?force" ,who)
-        (let* ((piece (random-piece))
-               (result (add-participant who piece)))
-          (match result
-            ('marbles-full
-             (format "@~a irl marbbies is full" who))
-            (_ #f))))
+        (when (or (is-moderator? message)
+                  (is-room-owner? message))
+          (let* ((piece (random-piece))
+                 (result (add-participant who piece)))
+            (match result
+              ('marbles-full
+               (format "@~a irl marbbies is full" who))
+              (_ #f)))))
        ('("?pieces")
         (format "@~a ~a"
                 who
-                (string-join (map piece->name (hash-keys participants)) ", ")))
+                (string-join (map piece->name (assigned-pieces)) ", ")))
        ('("?pieces-free")
         (format "@~a remaining pieces: ~a"
                 who
@@ -241,10 +258,10 @@ rook2)")
         (format "@~a the current lineup: ~a"
                 who
                 (string-join (map (lambda (p.w)
-                                    (format "~a: ~a"
+                                    (format "~a - ~a"
                                             (piece->name (car p.w))
                                             (cdr p.w)))
-                                  (hash->list participants))
+                                  (marbles-lineup))
                              ", ")))
        ('("?reset")
         (cond ((or (is-moderator? message)
