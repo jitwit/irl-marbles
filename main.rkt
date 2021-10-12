@@ -2,6 +2,9 @@
 
 (require racket/async-channel
          (except-in srfi/1 delete)
+         web-server/servlet
+         web-server/servlet-env
+         xml
          
          "irc.rkt")
 
@@ -146,14 +149,12 @@
   '(("?play" . "?play -- join marbles")
     ("?leave" . "?leave -- quit marbles")
     ("?kick" . "?kick <user> -- (mod only) boot <user> from the game")
-    ("?who" . "?who <piece> -- owner of <piece>, where <piece> is
-either in fen or in full (e.g. n for black knight, R2 for white
-rook2)")
+    ("?who" . "?who <piece> -- owner of <piece>, where <piece> is either in fen or in full (e.g. n for black knight, R2 for white rook2)")
     ("?what" . "?what -- what piece do you have")
     ("?pieces" . "?pieces -- list of assigned pieces")
     ("?pieces-free" . "?pieces-free -- list of pieces not yet assigned")
     ("?lineup" . "?lineup -- pieces & people")
-    ("?reset" . "?reset -- (mod only) reset the marbles")
+    ("?reset" . "?reset -- (mod only) reset irl marbles")
     ("?help" . "?help <command> -- information about <command>")
     ("?commands" . "?commands -- list of available commands. type ?help <command> to get information about <command>")))
 
@@ -279,7 +280,7 @@ rook2)")
         (define msg (assoc command commands))
         (if msg
             (format "@~a ~a" who (cdr msg))
-            (format "@~a command not found: ~a. use \"?commands\" to see possible commands"
+            (format "@~a command not found: \"~a\". use \"?commands\" to see possible commands"
                     who command)))
        (`("?help")
         (format "@~a try \"?help <command>\" or \"?commands\"" who))
@@ -292,9 +293,7 @@ rook2)")
   (match message
     ((irc-message _ _ "PRIVMSG" `(,where ,what)  _)
      (define response
-       (call-with-semaphore irl-semaphore
-                            (lambda ()
-                              (response-message message))))
+       (response-message message))
      (when response
        (irc-send-message (twitch-connection) where response)))
     (_ (void))))
@@ -322,10 +321,37 @@ rook2)")
     (define message
       (async-channel-get (irc-connection-incoming (twitch-connection))))
     (thread
-     (lambda ()
-       (respond-to-message message)))
+     (call-with-semaphore irl-semaphore
+                          (lambda ()
+                            (lambda ()
+                              (respond-to-message message)))))
     (loop)))
+
+(define (marbles-html-table)
+  `(html
+    (head (title "pp")
+          (body (table
+                 (thead (td "piece") (td "peep"))
+                 (tbody ,@(map (lambda (p.w)
+                                 `(tr (td ,(piece->name (car p.w)))
+                                      (td ,(cdr p.w))))
+                               (marbles-lineup))))))))
+
+(define (garcon request)
+  (response/xexpr
+   (marbles-html-table)))
+
+(define (main-to-be)
+  (boot)
+  (thread gogo)
+  (serve/servlet garcon
+               #:launch-browser? #f
+               #:servlet-path "/pp"
+               #:extra-files-paths (list (build-path "public"))))
 
 (define (main)
   (boot)
   (gogo))
+
+;; (main)
+
